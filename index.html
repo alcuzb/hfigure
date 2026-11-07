@@ -8,10 +8,12 @@
 html,body{margin:0;height:100%;background:#000;color:#eee;font:14px system-ui,sans-serif;overflow:hidden;touch-action:none}
 video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.5;transition:opacity .4s}
 canvas{position:fixed;inset:0;width:100%;height:100%}
-#ui{position:fixed;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 10px;display:flex;gap:6px;flex-wrap:wrap;z-index:5}
+#ui{position:fixed;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 8px) 8px 8px;display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;z-index:5;background:linear-gradient(#000b,#0000)}
+#ui::-webkit-scrollbar{display:none}
+.tab{flex:none;white-space:nowrap;background-image:linear-gradient(90deg,rgba(157,255,58,.55) var(--p,0%),transparent 0)}
+#cam{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 56px);transform:translateX(-50%);z-index:6}
 button{background:rgba(20,20,20,.7);color:#eee;border:1px solid #444;border-radius:20px;padding:8px 14px;font:inherit;backdrop-filter:blur(6px)}
 button.on{background:#9dff3a;color:#000;border-color:#9dff3a}
-#ttl{position:fixed;top:30%;left:0;right:0;text-align:center;font-size:34px;font-weight:700;letter-spacing:.5px;text-shadow:0 0 20px #000;z-index:4;pointer-events:none;transition:opacity 1s}
 #st{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 10px);font-size:13px;color:#bbb;text-align:center;pointer-events:none;z-index:5}
 </style>
 </head>
@@ -19,12 +21,11 @@ button.on{background:#9dff3a;color:#000;border-color:#9dff3a}
 <video id="v" playsinline muted></video>
 <canvas id="c"></canvas>
 <div id="ui"></div>
-<div id="ttl"></div>
-<div id="st">Kameraga ruxsat bering. Rejimni almashtirish: ochiq kaftni tez chapga/o'ngga siltang</div>
+<div id="st"></div>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
 <script>
-const $=s=>document.querySelector(s),cv=$('#c'),g=cv.getContext('2d'),vid=$('#v'),st=t=>$('#st').textContent=t;
+const $=s=>document.querySelector(s),cv=$('#c'),g=cv.getContext('2d'),vid=$('#v'),st=()=>{},msg=t=>$('#st').textContent=t;
 let W,H,DPR=Math.min(devicePixelRatio||1,2),T=0,mode=0,hands=[];
 function rs(){W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;g.setTransform(DPR,0,0,DPR,0,0)}
 addEventListener('resize',rs);rs();
@@ -56,17 +57,18 @@ async function cam(){
     hs.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});
     hs.onResults(proc);
     await new Camera(vid,{onFrame:async()=>{await hs.send({image:vid})},width:640,height:480,facingMode:'user'}).start();
-    $('#cam').style.display='none';st('Qo\'lingizni kameraga ko\'rsating · rejim: kaftni tez siltang');
-  }catch(e){$('#cam').style.display='';st('Kameraga ruxsat berilmadi. Tugmani bosib, brauzerda kameraga ruxsat bering')}
+    $('#cam').style.display='none';msg('');
+  }catch(e){$('#cam').style.display='';msg('Kameraga ruxsat berilmadi. Tugmani bosib, brauzerda kameraga ruxsat bering')}
 }
 
 /* ---------- Rejimlar ---------- */
-const MODES=['Shakllar','Ignalar','Zarralar','Quti','Olov','Chaqmoq','Galaktika','Havoda chizish','Qor','Magnit maydoni','To\'lqinlar','Neon skelet','Matritsa','Plazma'];
+const MODES=['Shakllar','Ignalar','Zarralar','O\'qlar yomg\'iri','Quti','Olov','Chaqmoq','Galaktika','Havoda chizish','Qor','Magnit maydoni','To\'lqinlar','Neon skelet','Matritsa','Plazma'];
 const UI=$('#ui'),cb=document.createElement('button');
-cb.id='cam';cb.textContent='Kamerani yoqish';cb.onclick=cam;cb.style.display='none';UI.appendChild(cb);
-let state={},tt=0;
-const VO=[.5,.12,.12,.5,.3,.25,.15,.35,.25,.2,.3,.35,.15,.2];
-function setMode(i){mode=(i+MODES.length)%MODES.length;vid.style.opacity=VO[mode];g.clearRect(0,0,W,H);state={};tt=performance.now();const e=$('#ttl');e.textContent=MODES[mode]+'  ('+(mode+1)+'/'+MODES.length+')';e.style.opacity=1}
+cb.id='cam';cb.textContent='Kamerani yoqish';cb.onclick=cam;cb.style.display='none';document.body.appendChild(cb);
+MODES.forEach((m,i)=>{const b=document.createElement('button');b.className='tab';b.textContent=m;b.onclick=()=>setMode(i);UI.appendChild(b)});
+let state={},tt=0,dw={el:null,t:0};
+const VO=[.5,.12,.12,.12,.5,.3,.25,.15,.35,.25,.2,.3,.35,.15,.2];
+function setMode(i){mode=(i+MODES.length)%MODES.length;vid.style.opacity=VO[mode];g.clearRect(0,0,W,H);state={};tt=performance.now();[...UI.children].forEach((b,k)=>b.classList.toggle('on',k==mode));const t=UI.children[mode];UI.scrollLeft=t.offsetLeft-UI.clientWidth/2+t.offsetWidth/2}
 setMode(0);
 
 /* ---------- 1) Shakllar: barmoq soni = shakl ---------- */
@@ -137,7 +139,7 @@ function drawNeedles(h0){
 function drawParticles(h){
   const n=h?h.n:-1,c=h?h.c:{x:W/2,y:H/2},R=(h?h.size*1.8:80)+80;
   st(!h?'Qo\'lingizni ko\'rsating':n==0?'Musht: shar':n>=4?'Ochiq kaft: aylanuvchi halqa':n>=2?'2–3 barmoq: o\'qlar yomg\'iri':'1 barmoq: oqim');
-  const rain=n==2||n==3;
+  const rain=false;
   P.forEach(p=>{
     if(rain){
       p.vy=-(3+p.r*9);p.y+=p.vy;if(p.y<-30){p.y=H+30;p.sx=Math.random()*W}
@@ -372,8 +374,21 @@ function plasma(){
   }));
   st(hands.length?'Plazma: har barmoq o\'z rangida nur izi qoldiradi':NH)
 }
-const FN=[drawShapes,drawNeedles,drawParticles,drawBox,fire,zap,galaxy,paint,snow,magnet,ripple,skel,matrix,plasma];
-const FADE=[.4,.2,.28,1,.3,.5,.3,1,1,1,1,.3,.1,1];
+function arrows(){
+  g.globalCompositeOperation='lighter';g.lineWidth=3;g.lineCap='round';
+  P.forEach((p,i)=>{
+    if(i>=500)return;
+    p.y-=3+p.r*9;if(p.y<-40){p.y=H+40;p.sx=Math.random()*W}
+    let tx=p.sx,hot=0;
+    hands.forEach(h=>{const dx=p.x-h.c.x,dy=p.y-h.c.y,d=Math.hypot(dx,dy),R=h.size*2+70;if(d<R){hot=1-d/R;tx=p.x+dx/(d||1)*60*hot*(h.n==0?-1:1)}});
+    p.x=L(p.x,tx,.12);
+    const l=14+p.r*18;
+    g.strokeStyle='hsl('+(hot>.05?190:p.h)+',100%,'+(55+hot*25)+'%)';
+    g.beginPath();g.moveTo(p.x,p.y);g.lineTo(p.x,p.y+l);g.moveTo(p.x-5,p.y+7);g.lineTo(p.x,p.y);g.lineTo(p.x+5,p.y+7);g.stroke()
+  })
+}
+const FN=[drawShapes,drawNeedles,drawParticles,arrows,drawBox,fire,zap,galaxy,paint,snow,magnet,ripple,skel,matrix,plasma];
+const FADE=[.4,.2,.28,.35,1,.3,.5,.3,1,1,1,1,.3,.1,1];
 
 /* ---------- Asosiy sikl ---------- */
 function loop(t){
@@ -384,7 +399,13 @@ function loop(t){
   g.shadowBlur=0;
   FN[mode](inp());
   g.globalCompositeOperation='source-over';g.shadowBlur=0;
-  if(performance.now()-tt>2200)$('#ttl').style.opacity=0;
+  const bar=UI.getBoundingClientRect(),now=performance.now();let hov=null;
+  hands.forEach(h=>{const t=h.p[8];if(t.y<bar.bottom){
+    if(t.x<W*.12)UI.scrollLeft-=9;else if(t.x>W*.88)UI.scrollLeft+=9;
+    const el=document.elementFromPoint(t.x,t.y),tb=el&&el.closest&&el.closest('.tab');if(tb)hov=tb}});
+  if(hov!==dw.el){dw.el=hov;dw.t=now}
+  [...UI.children].forEach((b,k)=>b.style.setProperty('--p',b===hov&&k!=mode?Math.min(100,(now-dw.t)/6)+'%':'0%'));
+  if(hov&&now-dw.t>600){const k=[...UI.children].indexOf(hov);if(k!=mode)setMode(k)}
   if(mode==0||mode==3){g.fillStyle='rgba(255,255,255,.55)';hands.forEach(q=>q.p.forEach(p=>{g.beginPath();g.arc(p.x,p.y,2.5,0,6.283);g.fill()}))}
 }
 requestAnimationFrame(loop);cam();
