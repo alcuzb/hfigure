@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Qo'l bilan boshqarish</title>
+<style>
+html,body{margin:0;height:100%;background:#000;color:#eee;font:14px system-ui,sans-serif;overflow:hidden;touch-action:none}
+video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.5;transition:opacity .4s}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#ui{position:fixed;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 10px;display:flex;gap:6px;flex-wrap:wrap;z-index:5}
+button{background:rgba(20,20,20,.7);color:#eee;border:1px solid #444;border-radius:20px;padding:8px 14px;font:inherit;backdrop-filter:blur(6px)}
+button.on{background:#9dff3a;color:#000;border-color:#9dff3a}
+#st{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 10px);font-size:13px;color:#bbb;text-align:center;pointer-events:none;z-index:5}
+</style>
+</head>
+<body>
+<video id="v" playsinline muted></video>
+<canvas id="c"></canvas>
+<div id="ui"></div>
+<div id="st">Kamerani yoqing yoki barmoq/sichqoncha bilan sinab ko'ring</div>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script>
+const $=s=>document.querySelector(s),cv=$('#c'),g=cv.getContext('2d'),vid=$('#v'),st=t=>$('#st').textContent=t;
+let W,H,DPR=Math.min(devicePixelRatio||1,2),T=0,mode=0,hands=[];
+function rs(){W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;g.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener('resize',rs);rs();
+const D=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),L=(a,b,k)=>a+(b-a)*k;
+
+/* ---------- Kirish: qo'l yoki ko'rsatkich ---------- */
+const ptr={x:W/2,y:H/2,n:1,on:false,lock:null};
+function proc(r){
+  const vw=vid.videoWidth||640,vh=vid.videoHeight||480,s=Math.max(W/vw,H/vh);
+  hands=(r.multiHandLandmarks||[]).map(l=>{
+    const p=l.map(q=>({x:W/2-(q.x-.5)*vw*s,y:H/2+(q.y-.5)*vh*s}));
+    let n=0;
+    [[8,6],[12,10],[16,14],[20,18]].forEach(([t,j])=>{if(D(p[t],p[0])>D(p[j],p[0])*1.1)n++});
+    if(D(p[4],p[17])>D(p[3],p[17])*1.12)n++;
+    return{p,n,c:{x:(p[0].x+p[9].x)/2,y:(p[0].y+p[9].y)/2},tip:p[8],size:D(p[0],p[9])}
+  });
+}
+function inp(){
+  if(hands.length)return hands[0];
+  if(!ptr.on)return null;
+  return{p:[],n:ptr.lock!=null?ptr.lock:ptr.n,c:ptr,tip:ptr,size:70};
+}
+cv.addEventListener('pointermove',e=>{ptr.x=e.clientX;ptr.y=e.clientY;ptr.on=true});
+cv.addEventListener('pointerdown',e=>{ptr.x=e.clientX;ptr.y=e.clientY;ptr.on=true;ptr.n=5});
+addEventListener('pointerup',()=>ptr.n=1);
+addEventListener('keydown',e=>{if(/^[0-5]$/.test(e.key)){ptr.lock=+e.key;ptr.on=true}});
+
+/* ---------- Kamera ---------- */
+async function cam(){
+  try{
+    const hs=new Hands({locateFile:f=>'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/'+f});
+    hs.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});
+    hs.onResults(proc);
+    await new Camera(vid,{onFrame:async()=>{await hs.send({image:vid})},width:640,height:480,facingMode:'user'}).start();
+    $('#cam').style.display='none';st('Qo\'lingizni kameraga ko\'rsating');
+  }catch(e){st('Kameraga ruxsat berilmadi. Sichqoncha/barmoq bilan ishlating (0–5 tugmalari = barmoqlar soni)')}
+}
+
+/* ---------- Rejimlar ro'yxati ---------- */
+const MODES=['Shakllar','Ignalar','Zarralar','Quti'],UI=$('#ui');
+MODES.forEach((m,i)=>{const b=document.createElement('button');b.textContent=m;b.onclick=()=>setMode(i);UI.appendChild(b)});
+const cb=document.createElement('button');cb.id='cam';cb.textContent='Kamerani yoqish';cb.onclick=cam;UI.appendChild(cb);
+function setMode(i){mode=i;[...UI.children].forEach((b,j)=>b.classList.toggle('on',j==i));vid.style.opacity=(i==1||i==2)?.1:.5;g.clearRect(0,0,W,H)}
+setMode(0);
+
+/* ---------- 1) Shakllar: barmoq soni = shakl ---------- */
+const CUBE=[...Array(8)].map((_,i)=>[(i&1)*2-1,((i>>1)&1)*2-1,((i>>2)&1)*2-1]);
+const CE=[];for(let i=0;i<8;i++)for(let j=i+1;j<8;j++){const x=i^j;if(x==1||x==2||x==4)CE.push([i,j])}
+const SH={
+  2:{v:[[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]],e:[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]],c:'#ffe14a',nm:'Tetraedr'},
+  3:{v:[[-1,1,-1],[1,1,-1],[1,1,1],[-1,1,1],[0,-1.3,0]],e:[[0,1],[1,2],[2,3],[3,0],[0,4],[1,4],[2,4],[3,4]],c:'#c8ff3a',nm:'Piramida'},
+  4:{v:CUBE,e:CE,c:'#ff9a3c',nm:'Kub'},
+  0:{v:CUBE,e:CE,c:'#ff4fd8',nm:'Pushti kub'}
+};
+const NP=900,P=[];
+for(let i=0;i<NP;i++)P.push({x:Math.random()*W,y:Math.random()*H,vx:0,vy:0,a:Math.random()*6.283,b:Math.random()*2-1,r:Math.random(),k:.03+Math.random()*.07,h:[95,55,35][i%3],sx:Math.random()*W});
+const sm={x:W/2,y:H/2,s:80};
+function rot(v,ry,rx){
+  let [x,y,z]=v,c=Math.cos(ry),s=Math.sin(ry),t=x*c+z*s;z=-x*s+z*c;x=t;
+  c=Math.cos(rx);s=Math.sin(rx);t=y*c-z*s;z=y*s+z*c;return[x,t,z]
+}
+function glow(c,b){g.shadowColor=c;g.shadowBlur=b;g.strokeStyle=c;g.fillStyle=c}
+function cloud(cx,cy,R,n,col){
+  glow(col,12);
+  for(let i=0;i<n;i++){
+    const p=P[i],f=Math.acos(p.b),v=rot([Math.sin(f)*Math.cos(p.a),Math.sin(f)*Math.sin(p.a),Math.cos(f)],T*.9,T*.5),k=1+v[2]*.2;
+    g.beginPath();g.arc(cx+v[0]*R*k,cy+v[1]*R*k,1.4+v[2]+1,0,6.283);g.fill()
+  }
+}
+function drawShapes(h){
+  if(!h){st('Qo\'lingizni ko\'rsating: 1–5 barmoq = turli shakl');return}
+  const two=hands.length>1,tx=two?(hands[0].c.x+hands[1].c.x)/2:h.c.x,ty=(two?(hands[0].c.y+hands[1].c.y)/2:h.c.y)-(two?0:h.size*1.4),
+        ts=two?Math.max(25,D(hands[0].c,hands[1].c)*.4):h.size*1.1+20;
+  sm.x=L(sm.x,tx,.3);sm.y=L(sm.y,ty,.3);sm.s=L(sm.s,ts,.2);
+  const n=h.n,ry=T*.8+sm.x*.004,rx=T*.55;
+  if(n==1){cloud(sm.x,sm.y,sm.s*.3,18,'#fff2a0');st('1 barmoq: zarracha')}
+  else if(n==5){cloud(sm.x,sm.y,sm.s,230,'hsl('+(300+Math.sin(T*2)*25)+',100%,62%)');st('5 barmoq: pushti zarralar buluti')}
+  else{
+    const S=SH[n]||SH[0],pts=S.v.map(v=>{const r=rot(v,ry,rx),k=sm.s/(1+r[2]*.12);return[sm.x+r[0]*k,sm.y+r[1]*k]});
+    glow(S.c,22);g.lineWidth=3;g.lineJoin='round';g.beginPath();
+    S.e.forEach(([a,b])=>{g.moveTo(pts[a][0],pts[a][1]);g.lineTo(pts[b][0],pts[b][1])});g.stroke();
+    st((n==0?'Musht':n+' barmoq')+': '+S.nm+' · ikki qo\'l orasi = o\'lcham')
+  }
+  g.shadowBlur=0;
+}
+
+/* ---------- 2) Ignalar va 3) Zarralar ---------- */
+function needle(p,ang,len,w){
+  g.strokeStyle='hsl('+p.h+',100%,'+(52+p.r*14)+'%)';g.lineWidth=w;
+  const dx=Math.cos(ang)*len,dy=Math.sin(ang)*len;
+  g.beginPath();g.moveTo(p.x-dx,p.y-dy);g.lineTo(p.x+dx,p.y+dy);g.stroke()
+}
+function drawNeedles(h){
+  if(!h){st('Barmoqni yurgizing: 1 barmoq = iz, ochiq kaft = halqa, musht = portlash');return}
+  const n=h.n,R=h.size*1.6+50;
+  st(n==0?'Musht: portlash':n>=4?'Ochiq kaft: halqa':'Ko\'rsatkich barmoq: yashil iz');
+  P.forEach((p,i)=>{
+    if(i>=700)return;
+    let tx,ty,rad=false;
+    if(n==0){const d=R*(1.1+p.r*1.5);tx=h.c.x+Math.cos(p.a)*d;ty=h.c.y+Math.sin(p.a)*d;rad=true;p.vx*=.9;p.vy*=.9}
+    else if(n>=4){const a=p.a+T*.8,d=R*(.8+p.r*.35);tx=h.c.x+Math.cos(a)*d;ty=h.c.y+Math.sin(a)*d;rad=true}
+    else{tx=h.tip.x+(p.b*40);ty=h.tip.y+(p.r-.5)*40}
+    p.vx+=(tx-p.x)*p.k*(n==0?1.4:1);p.vy+=(ty-p.y)*p.k*(n==0?1.4:1);
+    p.vx*=.84;p.vy*=.84;p.x+=p.vx;p.y+=p.vy;
+    const sp=Math.hypot(p.vx,p.vy);
+    needle(p,rad?Math.atan2(p.y-h.c.y,p.x-h.c.x):Math.atan2(p.vy,p.vx),4+Math.min(sp*.9,22),2)
+  })
+}
+function drawParticles(h){
+  const n=h?h.n:-1,c=h?h.c:{x:W/2,y:H/2},R=(h?h.size*1.8:80)+80;
+  st(!h?'Qo\'lingizni ko\'rsating':n==0?'Musht: shar':n>=4?'Ochiq kaft: aylanuvchi halqa':n>=2?'2–3 barmoq: o\'qlar yomg\'iri':'1 barmoq: oqim');
+  const rain=n==2||n==3;
+  P.forEach(p=>{
+    if(rain){
+      p.vy=-(3+p.r*9);p.y+=p.vy;if(p.y<-30){p.y=H+30;p.sx=Math.random()*W}
+      p.x=L(p.x,p.sx,.08);
+      g.strokeStyle='hsl('+p.h+',100%,58%)';g.lineWidth=3;
+      const l=14+p.r*18;g.beginPath();g.moveTo(p.x,p.y);g.lineTo(p.x,p.y+l);
+      g.moveTo(p.x-5,p.y+7);g.lineTo(p.x,p.y);g.lineTo(p.x+5,p.y+7);g.stroke();return
+    }
+    let tx,ty;
+    if(n==0||n>=4||n==-1){
+      const f=Math.acos(p.b);let v;
+      if(n>=4)v=rot([Math.cos(p.a+T)*(.55+.45*p.r),Math.sin(p.a+T)*(.55+.45*p.r)*.4,Math.sin(p.a+T)*(.55+.45*p.r)],0,.7+(c.y/H-.5));
+      else v=rot([Math.sin(f)*Math.cos(p.a),Math.sin(f)*Math.sin(p.a),Math.cos(f)],T*.8,0);
+      const k=1+v[2]*.18;tx=c.x+v[0]*R*k;ty=c.y+v[1]*R*k
+    }else{tx=h.tip.x+p.b*30;ty=h.tip.y+(p.r-.5)*30}
+    p.vx+=(tx-p.x)*p.k;p.vy+=(ty-p.y)*p.k;p.vx*=.82;p.vy*=.82;p.x+=p.vx;p.y+=p.vy;
+    needle(p,Math.atan2(p.vy||.01,p.vx),3+Math.min(Math.hypot(p.vx,p.vy)*.8,14),2.4)
+  })
+}
+
+/* ---------- 4) Quti ichida narsa ---------- */
+const OBJ=['🌺','🐉','🦋','🌳'];let oi=0,lastSw=0;
+function drawBox(h){
+  if(!h){st('Ikki qo\'lni ko\'rsating: quti qo\'llar orasiga cho\'ziladi · musht = narsani almashtirish');return}
+  const two=hands.length>1,A=hands[0]?hands[0].c:h.c,B=two?hands[1].c:null,
+        cx=B?(A.x+B.x)/2:A.x,cy=B?(A.y+B.y)/2:A.y,s=B?Math.max(40,D(A,B)*.5):h.size*1.3+50,
+        ry=T*.5+(B?(A.y-B.y)*.006:0);
+  sm.x=L(sm.x,cx,.3);sm.y=L(sm.y,cy,.3);sm.s=L(sm.s,s,.25);
+  const pts=CUBE.map(v=>{const r=rot(v,ry,.25),k=sm.s/(1+r[2]*.14);return[sm.x+r[0]*k,sm.y+r[1]*k]});
+  g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=1.5;g.beginPath();
+  CE.forEach(([a,b])=>{g.moveTo(pts[a][0],pts[a][1]);g.lineTo(pts[b][0],pts[b][1])});g.stroke();
+  g.fillStyle='#fff';pts.forEach(p=>{g.beginPath();g.arc(p[0],p[1],4.5,0,6.283);g.fill()});
+  g.font=(sm.s*1.25)+'px serif';g.textAlign='center';g.textBaseline='middle';
+  g.fillText(OBJ[oi],sm.x,sm.y+Math.sin(T*2)*sm.s*.05);
+  if(hands.some(q=>q.n==0)&&performance.now()-lastSw>900){oi=(oi+1)%OBJ.length;lastSw=performance.now()}
+  else if(!hands.length&&ptr.lock==0&&performance.now()-lastSw>900){oi=(oi+1)%OBJ.length;lastSw=performance.now()}
+  st('Musht qilib narsani almashtiring · qo\'llar orasi = quti o\'lchami')
+}
+
+/* ---------- Asosiy sikl ---------- */
+function loop(t){
+  T=t/1000;requestAnimationFrame(loop);
+  g.globalCompositeOperation='destination-out';
+  g.fillStyle='rgba(0,0,0,'+(mode==1?.2:mode==2?.28:1)+')';g.fillRect(0,0,W,H);
+  g.globalCompositeOperation='source-over';
+  const h=inp();
+  [drawShapes,drawNeedles,drawParticles,drawBox][mode](h);
+  if(mode==0||mode==3){g.fillStyle='rgba(255,255,255,.55)';hands.forEach(q=>q.p.forEach(p=>{g.beginPath();g.arc(p.x,p.y,2.5,0,6.283);g.fill()}))}
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
