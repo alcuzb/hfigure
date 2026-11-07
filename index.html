@@ -11,6 +11,7 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
 #ui{position:fixed;top:0;left:0;right:0;padding:calc(env(safe-area-inset-top,0px) + 10px) 10px 10px;display:flex;gap:6px;flex-wrap:wrap;z-index:5}
 button{background:rgba(20,20,20,.7);color:#eee;border:1px solid #444;border-radius:20px;padding:8px 14px;font:inherit;backdrop-filter:blur(6px)}
 button.on{background:#9dff3a;color:#000;border-color:#9dff3a}
+#ttl{position:fixed;top:30%;left:0;right:0;text-align:center;font-size:34px;font-weight:700;letter-spacing:.5px;text-shadow:0 0 20px #000;z-index:4;pointer-events:none;transition:opacity 1s}
 #st{position:fixed;left:0;right:0;bottom:0;padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 10px);font-size:13px;color:#bbb;text-align:center;pointer-events:none;z-index:5}
 </style>
 </head>
@@ -18,7 +19,8 @@ button.on{background:#9dff3a;color:#000;border-color:#9dff3a}
 <video id="v" playsinline muted></video>
 <canvas id="c"></canvas>
 <div id="ui"></div>
-<div id="st">Kamerani yoqing yoki barmoq/sichqoncha bilan sinab ko'ring</div>
+<div id="ttl"></div>
+<div id="st">Kameraga ruxsat bering. Rejimni almashtirish: ochiq kaftni tez chapga/o'ngga siltang</div>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
 <script>
@@ -28,27 +30,24 @@ function rs(){W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;g.setTra
 addEventListener('resize',rs);rs();
 const D=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),L=(a,b,k)=>a+(b-a)*k;
 
-/* ---------- Kirish: qo'l yoki ko'rsatkich ---------- */
-const ptr={x:W/2,y:H/2,n:1,on:false,lock:null};
+/* ---------- Kirish: faqat kamera ---------- */
+let swh=[],swLast=0;
 function proc(r){
   const vw=vid.videoWidth||640,vh=vid.videoHeight||480,s=Math.max(W/vw,H/vh);
   hands=(r.multiHandLandmarks||[]).map(l=>{
     const p=l.map(q=>({x:W/2-(q.x-.5)*vw*s,y:H/2+(q.y-.5)*vh*s}));
-    let n=0;
-    [[8,6],[12,10],[16,14],[20,18]].forEach(([t,j])=>{if(D(p[t],p[0])>D(p[j],p[0])*1.1)n++});
-    if(D(p[4],p[17])>D(p[3],p[17])*1.12)n++;
-    return{p,n,c:{x:(p[0].x+p[9].x)/2,y:(p[0].y+p[9].y)/2},tip:p[8],size:D(p[0],p[9])}
+    const up=[D(p[4],p[17])>D(p[3],p[17])*1.12];
+    [[8,6],[12,10],[16,14],[20,18]].forEach(([t,j])=>up.push(D(p[t],p[0])>D(p[j],p[0])*1.1));
+    const size=D(p[0],p[9]);
+    return{p,up,n:up.filter(Boolean).length,c:{x:(p[0].x+p[9].x)/2,y:(p[0].y+p[9].y)/2},tip:p[8],size,pinch:D(p[4],p[8])/size}
   });
+  const nw=performance.now(),h0=hands[0];
+  if(h0&&h0.n>=4){
+    swh.push({t:nw,x:h0.c.x});while(swh.length&&nw-swh[0].t>300)swh.shift();
+    if(swh.length>3&&nw-swLast>1100&&Math.abs(h0.c.x-swh[0].x)>W*.3){setMode(mode+(h0.c.x>swh[0].x?1:-1));swLast=nw;swh.length=0}
+  }else swh.length=0;
 }
-function inp(){
-  if(hands.length)return hands[0];
-  if(!ptr.on)return null;
-  return{p:[],n:ptr.lock!=null?ptr.lock:ptr.n,c:ptr,tip:ptr,size:70};
-}
-cv.addEventListener('pointermove',e=>{ptr.x=e.clientX;ptr.y=e.clientY;ptr.on=true});
-cv.addEventListener('pointerdown',e=>{ptr.x=e.clientX;ptr.y=e.clientY;ptr.on=true;ptr.n=5});
-addEventListener('pointerup',()=>ptr.n=1);
-addEventListener('keydown',e=>{if(/^[0-5]$/.test(e.key)){ptr.lock=+e.key;ptr.on=true}});
+const inp=()=>hands[0]||null;
 
 /* ---------- Kamera ---------- */
 async function cam(){
@@ -57,15 +56,17 @@ async function cam(){
     hs.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.6,minTrackingConfidence:.5});
     hs.onResults(proc);
     await new Camera(vid,{onFrame:async()=>{await hs.send({image:vid})},width:640,height:480,facingMode:'user'}).start();
-    $('#cam').style.display='none';st('Qo\'lingizni kameraga ko\'rsating');
-  }catch(e){st('Kameraga ruxsat berilmadi. Sichqoncha/barmoq bilan ishlating (0–5 tugmalari = barmoqlar soni)')}
+    $('#cam').style.display='none';st('Qo\'lingizni kameraga ko\'rsating · rejim: kaftni tez siltang');
+  }catch(e){$('#cam').style.display='';st('Kameraga ruxsat berilmadi. Tugmani bosib, brauzerda kameraga ruxsat bering')}
 }
 
-/* ---------- Rejimlar ro'yxati ---------- */
-const MODES=['Shakllar','Ignalar','Zarralar','Quti'],UI=$('#ui');
-MODES.forEach((m,i)=>{const b=document.createElement('button');b.textContent=m;b.onclick=()=>setMode(i);UI.appendChild(b)});
-const cb=document.createElement('button');cb.id='cam';cb.textContent='Kamerani yoqish';cb.onclick=cam;UI.appendChild(cb);
-function setMode(i){mode=i;[...UI.children].forEach((b,j)=>b.classList.toggle('on',j==i));vid.style.opacity=(i==1||i==2)?.1:.5;g.clearRect(0,0,W,H)}
+/* ---------- Rejimlar ---------- */
+const MODES=['Shakllar','Ignalar','Zarralar','Quti','Olov','Chaqmoq','Galaktika','Havoda chizish','Qor','Magnit maydoni','To\'lqinlar','Neon skelet','Matritsa','Plazma'];
+const UI=$('#ui'),cb=document.createElement('button');
+cb.id='cam';cb.textContent='Kamerani yoqish';cb.onclick=cam;cb.style.display='none';UI.appendChild(cb);
+let state={},tt=0;
+const VO=[.5,.12,.12,.5,.3,.25,.15,.35,.25,.2,.3,.35,.15,.2];
+function setMode(i){mode=(i+MODES.length)%MODES.length;vid.style.opacity=VO[mode];g.clearRect(0,0,W,H);state={};tt=performance.now();const e=$('#ttl');e.textContent=MODES[mode]+'  ('+(mode+1)+'/'+MODES.length+')';e.style.opacity=1}
 setMode(0);
 
 /* ---------- 1) Shakllar: barmoq soni = shakl ---------- */
@@ -92,21 +93,22 @@ function cloud(cx,cy,R,n,col){
     g.beginPath();g.arc(cx+v[0]*R*k,cy+v[1]*R*k,1.4+v[2]+1,0,6.283);g.fill()
   }
 }
-function drawShapes(h){
-  if(!h){st('Qo\'lingizni ko\'rsating: 1–5 barmoq = turli shakl');return}
-  const two=hands.length>1,tx=two?(hands[0].c.x+hands[1].c.x)/2:h.c.x,ty=(two?(hands[0].c.y+hands[1].c.y)/2:h.c.y)-(two?0:h.size*1.4),
-        ts=two?Math.max(25,D(hands[0].c,hands[1].c)*.4):h.size*1.1+20;
-  sm.x=L(sm.x,tx,.3);sm.y=L(sm.y,ty,.3);sm.s=L(sm.s,ts,.2);
-  const n=h.n,ry=T*.8+sm.x*.004,rx=T*.55;
-  if(n==1){cloud(sm.x,sm.y,sm.s*.3,18,'#fff2a0');st('1 barmoq: zarracha')}
-  else if(n==5){cloud(sm.x,sm.y,sm.s,230,'hsl('+(300+Math.sin(T*2)*25)+',100%,62%)');st('5 barmoq: pushti zarralar buluti')}
-  else{
-    const S=SH[n]||SH[0],pts=S.v.map(v=>{const r=rot(v,ry,rx),k=sm.s/(1+r[2]*.12);return[sm.x+r[0]*k,sm.y+r[1]*k]});
-    glow(S.c,22);g.lineWidth=3;g.lineJoin='round';g.beginPath();
-    S.e.forEach(([a,b])=>{g.moveTo(pts[a][0],pts[a][1]);g.lineTo(pts[b][0],pts[b][1])});g.stroke();
-    st((n==0?'Musht':n+' barmoq')+': '+S.nm+' · ikki qo\'l orasi = o\'lcham')
-  }
+function drawShapes(){
+  if(!hands.length){st('Qo\'lingizni ko\'rsating: 1–5 barmoq = turli shakl');return}
+  const two=hands.length>1,dd=two?D(hands[0].c,hands[1].c):0,M=state.sh=state.sh||[{x:W/2,y:H/2,s:60},{x:W/2,y:H/2,s:60}];
+  hands.forEach((h,i)=>{
+    const m=M[i];m.x=L(m.x,h.c.x,.35);m.y=L(m.y,h.c.y-h.size*1.5,.35);m.s=L(m.s,two?Math.max(30,dd*.28):h.size+20,.2);
+    const n=h.n,ry=T*.9+i*2+m.x*.004,rx=T*.6;
+    if(n==1)cloud(m.x,m.y,m.s*.3,18,'#fff2a0');
+    else if(n==5)cloud(m.x,m.y,m.s,230,'hsl('+(300+Math.sin(T*2)*25)+',100%,62%)');
+    else{
+      const S=SH[n]||SH[0],pts=S.v.map(v=>{const r=rot(v,ry,rx),k=m.s/(1+r[2]*.12);return[m.x+r[0]*k,m.y+r[1]*k]});
+      glow(S.c,22);g.lineWidth=3;g.lineJoin='round';g.beginPath();
+      S.e.forEach(([a,b])=>{g.moveTo(pts[a][0],pts[a][1]);g.lineTo(pts[b][0],pts[b][1])});g.stroke()
+    }
+  });
   g.shadowBlur=0;
+  st(two?'Ikki qo\'l orasi = o\'lcham · har qo\'lda barmoq soni = shakl':'1–5 barmoq = turli shakl · ikkinchi qo\'lni qo\'shing')
 }
 
 /* ---------- 2) Ignalar va 3) Zarralar ---------- */
@@ -115,12 +117,13 @@ function needle(p,ang,len,w){
   const dx=Math.cos(ang)*len,dy=Math.sin(ang)*len;
   g.beginPath();g.moveTo(p.x-dx,p.y-dy);g.lineTo(p.x+dx,p.y+dy);g.stroke()
 }
-function drawNeedles(h){
-  if(!h){st('Barmoqni yurgizing: 1 barmoq = iz, ochiq kaft = halqa, musht = portlash');return}
-  const n=h.n,R=h.size*1.6+50;
-  st(n==0?'Musht: portlash':n>=4?'Ochiq kaft: halqa':'Ko\'rsatkich barmoq: yashil iz');
+function drawNeedles(h0){
+  if(!h0){st('Qo\'lingizni ko\'rsating: 1 barmoq = iz, ochiq kaft = halqa, musht = portlash');return}
+  st(h0.n==0?'Musht: portlash':h0.n>=4?'Ochiq kaft: halqa':'Ko\'rsatkich barmoq: yashil iz');
+  g.globalCompositeOperation='lighter';
   P.forEach((p,i)=>{
     if(i>=700)return;
+    const h=hands[i%hands.length],n=h.n,R=h.size*1.6+50;
     let tx,ty,rad=false;
     if(n==0){const d=R*(1.1+p.r*1.5);tx=h.c.x+Math.cos(p.a)*d;ty=h.c.y+Math.sin(p.a)*d;rad=true;p.vx*=.9;p.vy*=.9}
     else if(n>=4){const a=p.a+T*.8,d=R*(.8+p.r*.35);tx=h.c.x+Math.cos(a)*d;ty=h.c.y+Math.sin(a)*d;rad=true}
@@ -156,7 +159,74 @@ function drawParticles(h){
 }
 
 /* ---------- 4) Quti ichida narsa ---------- */
-const OBJ=['🌺','🐉','🦋','🌳'];let oi=0,lastSw=0;
+const OBJ=[0,1,2,3];let oi=0,lastSw=0;
+const TAU=6.283;
+function lily(u){
+  const sw=Math.sin(T*1.4)*.08,bl=1+Math.sin(T*2)*.05;
+  g.save();g.translate(0,-u*.25);g.rotate(sw*.5);g.lineCap='round';
+  g.strokeStyle='#2d8a34';g.lineWidth=u*.07;g.beginPath();g.moveTo(sw*u,u*1.3);g.quadraticCurveTo(-u*.2,u*.7,0,u*.1);g.stroke();
+  g.fillStyle='#37a63f';
+  [[-1,.85],[1,.65]].forEach(([d,y])=>{g.save();g.translate(0,u*y);g.rotate(-d*.45+sw);g.beginPath();g.ellipse(d*u*.32,0,u*.34,u*.07,0,0,TAU);g.fill();g.restore()});
+  for(let i=0;i<6;i++){
+    g.save();g.rotate(i*TAU/6+(i%2?.25:0)+Math.sin(T*1.5+i)*.03);g.scale(bl,bl*(i%2?.88:1));
+    const gr=g.createLinearGradient(0,0,0,-u*.85);gr.addColorStop(0,'#ffd0d8');gr.addColorStop(.45,'#ff3d68');gr.addColorStop(1,'#c4103c');
+    g.fillStyle=gr;g.strokeStyle='#8a0a28';g.lineWidth=1.5;
+    g.beginPath();g.moveTo(0,0);g.bezierCurveTo(-u*.3,-u*.3,-u*.18,-u*.7,0,-u*.88);g.bezierCurveTo(u*.18,-u*.7,u*.3,-u*.3,0,0);g.fill();g.stroke();
+    g.fillStyle='#7a0820';[.2,.32,.44].forEach(y=>{g.beginPath();g.arc((i%2?1:-1)*u*.03,-u*y,u*.02,0,TAU);g.fill()});
+    g.restore()}
+  g.strokeStyle='#f6e3a1';g.lineWidth=2;g.fillStyle='#e8781c';
+  for(let i=0;i<5;i++){const a=-1.9+i*.45+Math.sin(T*2+i)*.05,x=Math.cos(a)*u*.42,y=Math.sin(a)*u*.42;
+    g.beginPath();g.moveTo(0,0);g.lineTo(x,y);g.stroke();g.beginPath();g.ellipse(x,y,u*.035,u*.07,a+1.57,0,TAU);g.fill()}
+  g.restore()}
+function drag(u){
+  const N=26,pt=[];
+  for(let i=0;i<=N;i++){const t=i/N;pt.push([(.6-t*1.6)*u,Math.sin(t*5-T*3)*u*.16*(.3+t)+(t-.3)*u*.12])}
+  const wing=(rx,ry,s,ph,col)=>{
+    const k=.3+.8*Math.sin(T*5+ph),tp=[-.5,.1,.55].map((x,i)=>[rx+x*u*s,ry-[1,.95,.6][i]*u*k*s]);
+    g.fillStyle=col;g.strokeStyle='#4a0508';g.lineWidth=2;g.beginPath();g.moveTo(rx,ry);g.lineTo(tp[0][0],tp[0][1]);
+    g.quadraticCurveTo((tp[0][0]+tp[1][0])/2,(tp[0][1]+tp[1][1])/2+u*.18,tp[1][0],tp[1][1]);
+    g.quadraticCurveTo((tp[1][0]+tp[2][0])/2,(tp[1][1]+tp[2][1])/2+u*.18,tp[2][0],tp[2][1]);
+    g.lineTo(rx+u*.25,ry+u*.05);g.closePath();g.fill();g.stroke();
+    g.beginPath();tp.forEach(p=>{g.moveTo(rx,ry);g.lineTo(p[0],p[1])});g.stroke()};
+  g.save();g.translate(u*.1,0);g.lineJoin='round';
+  wing(pt[8][0],pt[8][1],.8,.7,'rgba(120,10,20,.85)');
+  for(let i=N;i>=0;i--){const t=1-i/N;
+    g.fillStyle='hsl(356,78%,'+(26+t*16)+'%)';g.beginPath();g.arc(pt[i][0],pt[i][1],u*(.025+.115*Math.pow(t,.7)),0,TAU);g.fill();
+    if(i%3==0&&i>2){g.fillStyle='#ffb347';g.beginPath();g.moveTo(pt[i][0]-u*.03,pt[i][1]-u*.1*t-u*.02);g.lineTo(pt[i][0],pt[i][1]-u*(.1*t+.1));g.lineTo(pt[i][0]+u*.03,pt[i][1]-u*.1*t-u*.02);g.fill()}}
+  wing(pt[6][0],pt[6][1],1,0,'rgba(215,30,42,.85)');
+  const hx=pt[0][0],hy=pt[0][1];
+  g.fillStyle='#d4202c';g.beginPath();g.ellipse(hx+u*.12,hy,u*.17,u*.1,0,0,TAU);g.fill();
+  g.fillStyle='#ffb347';[-.04,.08].forEach(o=>{g.beginPath();g.moveTo(hx+o*u,hy-u*.08);g.lineTo(hx+(o-.12)*u,hy-u*.27);g.lineTo(hx+(o+.06)*u,hy-u*.1);g.fill()});
+  g.fillStyle='#ffe14a';g.beginPath();g.arc(hx+u*.06,hy-u*.03,u*.03,0,TAU);g.fill();
+  g.fillStyle='#111';g.beginPath();g.arc(hx+u*.07,hy-u*.03,u*.014,0,TAU);g.fill();
+  const fk=Math.sin(T*9)*.5+.5;g.fillStyle='rgba(255,'+(120+fk*100|0)+',30,.8)';
+  g.beginPath();g.ellipse(hx+u*.45,hy+u*.02,u*(.12+fk*.1),u*.05,0,0,TAU);g.fill();
+  g.restore()}
+function bfly(u){
+  const f=Math.abs(Math.cos(T*8))*.85+.15;
+  g.save();g.translate(0,Math.sin(T*3)*u*.08);g.rotate(Math.sin(T*1.7)*.12);
+  for(const m of[1,-1]){
+    g.save();g.scale(m*f,1);
+    const gr=g.createLinearGradient(0,0,u,0);gr.addColorStop(0,'#0a2a8a');gr.addColorStop(.6,'#1f7bff');gr.addColorStop(1,'#6fe0ff');
+    g.fillStyle=gr;g.strokeStyle='#061a4a';g.lineWidth=2;
+    g.beginPath();g.moveTo(0,-u*.05);g.bezierCurveTo(u*.3,-u*.95,u,-u*.85,u*.95,-u*.25);g.bezierCurveTo(u*.9,u*.05,u*.4,u*.1,0,u*.05);g.fill();g.stroke();
+    g.beginPath();g.moveTo(0,u*.05);g.bezierCurveTo(u*.5,u*.1,u*.8,u*.35,u*.6,u*.7);g.bezierCurveTo(u*.35,u*.85,u*.1,u*.5,0,u*.2);g.fill();g.stroke();
+    g.fillStyle='rgba(255,255,255,.85)';[[.7,-.45],[.55,-.62],[.8,-.25],[.5,.5]].forEach(([a,b])=>{g.beginPath();g.arc(u*a,u*b,u*.04,0,TAU);g.fill()});
+    g.restore()}
+  g.fillStyle='#111';g.beginPath();g.ellipse(0,0,u*.05,u*.32,0,0,TAU);g.fill();
+  g.strokeStyle='#111';g.lineWidth=2;g.beginPath();g.moveTo(0,-u*.3);g.quadraticCurveTo(-u*.15,-u*.6,-u*.25,-u*.62);g.moveTo(0,-u*.3);g.quadraticCurveTo(u*.15,-u*.6,u*.25,-u*.62);g.stroke();
+  g.restore()}
+function br(x,y,l,a,d,u){
+  a+=Math.sin(T*1.3+d*.7+x*.01)*.018*(6-d);
+  const x2=x+Math.cos(a)*l,y2=y+Math.sin(a)*l;
+  g.strokeStyle='#6b4423';g.lineWidth=Math.max(1.5,d*u*.022);g.lineCap='round';g.beginPath();g.moveTo(x,y);g.lineTo(x2,y2);g.stroke();
+  if(d<=0){for(let i=0;i<2;i++){g.fillStyle='hsl('+(100+((x*7+i*40)%35))+',55%,'+(30+i*10)+'%)';g.beginPath();g.arc(x2+(i?8:-6),y2+(i?-5:4),u*.13,0,TAU);g.fill()}return}
+  br(x2,y2,l*.78,a-.5,d-1,u);br(x2,y2,l*.78,a+.45,d-1,u);if(d>3)br(x2,y2,l*.7,a+.03,d-1,u)}
+function tree(u){
+  g.save();g.translate(0,-u*.25);
+  g.fillStyle='#8a4b2a';g.beginPath();g.moveTo(-u*.45,u*.75);g.lineTo(u*.45,u*.75);g.lineTo(u*.35,u);g.lineTo(-u*.35,u);g.fill();
+  br(0,u*.75,u*.42,-1.47,5,u);g.restore()}
+const ART=[lily,drag,bfly,tree];
 function drawBox(h){
   if(!h){st('Ikki qo\'lni ko\'rsating: quti qo\'llar orasiga cho\'ziladi · musht = narsani almashtirish');return}
   const two=hands.length>1,A=hands[0]?hands[0].c:h.c,B=two?hands[1].c:null,
@@ -167,24 +237,157 @@ function drawBox(h){
   g.strokeStyle='rgba(255,255,255,.7)';g.lineWidth=1.5;g.beginPath();
   CE.forEach(([a,b])=>{g.moveTo(pts[a][0],pts[a][1]);g.lineTo(pts[b][0],pts[b][1])});g.stroke();
   g.fillStyle='#fff';pts.forEach(p=>{g.beginPath();g.arc(p[0],p[1],4.5,0,6.283);g.fill()});
-  g.font=(sm.s*1.25)+'px serif';g.textAlign='center';g.textBaseline='middle';
-  g.fillText(OBJ[oi],sm.x,sm.y+Math.sin(T*2)*sm.s*.05);
+  g.save();g.translate(sm.x,sm.y);g.scale(.75+.25*Math.cos(ry),1);ART[oi](sm.s*.85);g.restore();
   if(hands.some(q=>q.n==0)&&performance.now()-lastSw>900){oi=(oi+1)%OBJ.length;lastSw=performance.now()}
-  else if(!hands.length&&ptr.lock==0&&performance.now()-lastSw>900){oi=(oi+1)%OBJ.length;lastSw=performance.now()}
   st('Musht qilib narsani almashtiring · qo\'llar orasi = quti o\'lchami')
 }
+
+/* ---------- Yangi rejimlar ---------- */
+const TI=[4,8,12,16,20],tipsOf=h=>{const r=TI.filter((_,k)=>h.up[k]).map(k=>h.p[k]);return r.length?r:[h.c]};
+const NH='Qo\'lingizni kameraga ko\'rsating';
+function fire(){
+  const F=state.f=state.f||[];g.globalCompositeOperation='lighter';
+  hands.forEach(h=>{
+    if(h.n==0){for(let i=0;i<14;i++)F.push({x:h.c.x+(Math.random()-.5)*h.size,y:h.c.y+(Math.random()-.5)*h.size*.6,vx:(Math.random()-.5)*2,vy:-(2+Math.random()*3),l:1,r:h.size*.18+Math.random()*10})}
+    else tipsOf(h).forEach(t=>{for(let i=0;i<3;i++)F.push({x:t.x,y:t.y,vx:(Math.random()-.5)*1.4,vy:-(1.5+Math.random()*2.5),l:1,r:6+Math.random()*9})})
+  });
+  for(let i=F.length-1;i>=0;i--){const p=F[i];p.x+=p.vx+Math.sin(T*6+p.y*.05)*.6;p.y+=p.vy;p.l-=.022;p.r*=.985;
+    if(p.l<=0){F.splice(i,1);continue}
+    g.fillStyle='hsla('+(8+p.l*48)+',100%,'+(35+p.l*30)+'%,'+p.l*.55+')';g.beginPath();g.arc(p.x,p.y,p.r,0,TAU);g.fill()}
+  if(F.length>1500)F.splice(0,F.length-1500);
+  st(hands.length?'Olov: barmoqlar uchidan chiqadi · musht = olov to\'pi':NH)
+}
+function bolt(a,b,d){
+  let pts=[[a.x,a.y],[b.x,b.y]];
+  for(let k=0;k<d;k++){const np=[pts[0]];for(let i=1;i<pts.length;i++){const u=pts[i-1],v=pts[i],l=Math.hypot(v[0]-u[0],v[1]-u[1])*.25;np.push([(u[0]+v[0])/2+(Math.random()-.5)*l,(u[1]+v[1])/2+(Math.random()-.5)*l],v)}pts=np}
+  g.beginPath();pts.forEach((q,i)=>i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1]));
+  g.shadowColor='#6af';g.shadowBlur=20;g.strokeStyle='rgba(90,150,255,.55)';g.lineWidth=8;g.stroke();
+  g.shadowBlur=0;g.strokeStyle='#fff';g.lineWidth=2;g.stroke()
+}
+function zap(){
+  g.globalCompositeOperation='lighter';g.lineJoin='round';
+  if(hands.length>1){const A=hands[0],B=hands[1];bolt(A.c,B.c,6);bolt(A.tip,B.tip,6);bolt(A.p[4],B.p[4],5);bolt(A.p[20],B.p[20],5)}
+  else if(hands.length){const h=hands[0];tipsOf(h).forEach(t=>bolt(h.c,t,5));if(h.pinch<.35)bolt(h.p[4],h.p[8],4)}
+  st(hands.length>1?'Ikki qo\'l orasida chaqmoq':hands.length?'Kaftdan barmoqlarga chaqmoq · ikkinchi qo\'lni qo\'shing':NH)
+}
+function galaxy(){
+  g.globalCompositeOperation='lighter';
+  const S=state.gx=state.gx||{c:{x:W/2,y:H/2},R:140,s:[...Array(650)].map((_,i)=>{const r=Math.pow(Math.random(),.6);return{r,a:(i%2)*Math.PI+r*5+(Math.random()-.5)*.5,h:200+r*100+Math.random()*40}})};
+  const h=hands[0],tc=h?h.c:{x:W/2,y:H/2},tR=h?(h.n==0?h.size*.7:h.size*(1.5+h.n*.55)):140;
+  S.c.x=L(S.c.x,tc.x,.2);S.c.y=L(S.c.y,tc.y,.2);S.R=L(S.R,tR,.12);
+  const tilt=h?Math.atan2(h.p[9].y-h.p[0].y,h.p[9].x-h.p[0].x)+1.57:0,sp=.4+(S.c.x/W)*1.6,ct=Math.cos(tilt),sn=Math.sin(tilt);
+  const gr=g.createRadialGradient(S.c.x,S.c.y,0,S.c.x,S.c.y,S.R*.35);gr.addColorStop(0,'rgba(255,240,200,.9)');gr.addColorStop(1,'rgba(120,80,255,0)');
+  g.fillStyle=gr;g.beginPath();g.arc(S.c.x,S.c.y,S.R*.35,0,TAU);g.fill();
+  S.s.forEach(p=>{const a=p.a+T*sp/(p.r+.25),x=Math.cos(a)*p.r*S.R,y=Math.sin(a)*p.r*S.R*.5;
+    g.fillStyle='hsla('+p.h+',90%,'+(60+p.r*20)+'%,.85)';g.fillRect(S.c.x+x*ct-y*sn,S.c.y+x*sn+y*ct,2.2,2.2)});
+  st(h?'Galaktika: ochiq kaft = kengayadi, musht = siqiladi, egsangiz aylanadi':NH)
+}
+function paint(h){
+  const S=state.S=state.S||[[]],cur=S[S.length-1];
+  const pen=h&&h.up[1]&&!h.up[2]&&!h.up[3]&&!h.up[4];
+  if(pen){state.tp=state.tp?{x:L(state.tp.x,h.tip.x,.5),y:L(state.tp.y,h.tip.y,.5)}:{x:h.tip.x,y:h.tip.y};cur.push({x:state.tp.x,y:state.tp.y})}
+  else{state.tp=null;if(cur.length)S.push([])}
+  state.fc=h&&h.n==0?(state.fc||0)+1:0;
+  if(state.fc>35){state.S=[[]];state.fc=0}
+  let tot=0;S.forEach(q=>tot+=q.length);while(tot>3500&&S.length>1){tot-=S[0].length;S.shift()}
+  g.lineCap='round';g.lineJoin='round';g.lineWidth=5;g.shadowBlur=14;
+  S.forEach((q,k)=>{if(q.length<2)return;const c='hsl('+((k*47+T*20)%360)+',100%,60%)';g.strokeStyle=c;g.shadowColor=c;
+    g.beginPath();q.forEach((a,i)=>i?g.lineTo(a.x,a.y):g.moveTo(a.x,a.y));g.stroke()});
+  g.shadowBlur=0;
+  if(h){g.strokeStyle='#fff';g.lineWidth=2;g.beginPath();g.arc(h.tip.x,h.tip.y,pen?5:10,0,TAU);g.stroke()}
+  st(h?'Faqat ko\'rsatkich barmoq = chizish · musht 1 soniya = tozalash':NH)
+}
+function snow(){
+  const F=state.sn=state.sn||[...Array(520)].map(()=>({x:Math.random()*W,y:Math.random()*H,vx:0,vy:0,r:1+Math.random()*2.6,w:Math.random()*6}));
+  g.fillStyle='rgba(235,245,255,.9)';
+  F.forEach(p=>{
+    p.vy+=(.6+p.r*.25-p.vy)*.05;p.vx+=(Math.sin(T+p.w)*.3-p.vx)*.05;
+    hands.forEach(h=>{const R=h.size*2+60,dx=p.x-h.c.x,dy=p.y-h.c.y,d=Math.hypot(dx,dy)||1;
+      if(d<R){const f=1-d/R;if(h.n==0){p.vx+=(-dx/d-dy/d)*f*1.2;p.vy+=(-dy/d+dx/d)*f*1.2}else{p.vx+=dx/d*f*3;p.vy+=dy/d*f*3}}});
+    p.x+=p.vx;p.y+=p.vy;p.vx*=.97;
+    if(p.y>H+5){p.y=-5;p.x=Math.random()*W}if(p.x<-5)p.x=W+5;if(p.x>W+5)p.x=-5;
+    g.beginPath();g.arc(p.x,p.y,p.r,0,TAU);g.fill()});
+  st(hands.length?'Qor: kaft bilan haydang · musht = qorni aylantirib tortadi':NH)
+}
+function magnet(){
+  const sp=34,A=[];hands.forEach(h=>tipsOf(h).forEach(t=>A.push({x:t.x,y:t.y,inv:h.pinch<.4})));
+  g.lineWidth=2.5;g.lineCap='round';
+  for(let x=sp/2;x<W;x+=sp)for(let y=sp/2;y<H;y+=sp){
+    let a,d=9e9;
+    if(A.length){A.forEach(q=>{const dd=Math.hypot(q.x-x,q.y-y);if(dd<d){d=dd;a=Math.atan2(q.y-y,q.x-x)+(q.inv?Math.PI:0)}})}
+    else{a=Math.sin(x*.01+T)+Math.cos(y*.012-T*.8);d=400}
+    const k=Math.max(0,1-d/380),l=8+k*10;
+    g.strokeStyle='hsla('+(190+k*150)+',90%,'+(45+k*25)+'%,'+(.35+k*.65)+')';
+    g.beginPath();g.moveTo(x-Math.cos(a)*l,y-Math.sin(a)*l);g.lineTo(x+Math.cos(a)*l,y+Math.sin(a)*l);g.stroke()}
+  st(hands.length?'Magnit: barmoq uchlari dashlarni tortadi · chimchilash = qaytaradi':NH)
+}
+function ripple(){
+  const R=state.rp=state.rp||[],lt=state.lt=state.lt||{};
+  hands.forEach((h,i)=>{
+    const t=h.tip,l=lt[i];
+    if(h.n==0){if(((T*60)|0)%14==0)R.push({x:h.c.x,y:h.c.y,r:10,v:7,h:355,l:1,w:6})}
+    else if(l&&Math.hypot(t.x-l.x,t.y-l.y)>10)R.push({x:t.x,y:t.y,r:4,v:3.5,h:(T*80+i*120)%360,l:1,w:4});
+    lt[i]={x:t.x,y:t.y}
+  });
+  for(let i=R.length-1;i>=0;i--){const q=R[i];q.r+=q.v;q.l-=.014;if(q.l<=0){R.splice(i,1);continue}
+    g.lineWidth=q.w*q.l;g.strokeStyle='hsla('+q.h+',100%,62%,'+q.l+')';g.shadowColor='hsl('+q.h+',100%,60%)';g.shadowBlur=10;
+    g.beginPath();g.arc(q.x,q.y,q.r,0,TAU);g.stroke();g.beginPath();g.arc(q.x,q.y,q.r*.6,0,TAU);g.stroke()}
+  if(R.length>140)R.splice(0,R.length-140);
+  st(hands.length?'To\'lqinlar: ko\'rsatkich barmoqni siljiting · musht = katta zarba':NH)
+}
+const BN=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+function skel(){
+  g.globalCompositeOperation='lighter';g.lineCap='round';
+  hands.forEach((h,hi)=>{
+    BN.forEach(([a,b],i)=>{const c='hsl('+((170+i*9+T*50+hi*120)%360)+',100%,60%)';g.strokeStyle=c;g.shadowColor=c;g.shadowBlur=14;g.lineWidth=4;
+      g.beginPath();g.moveTo(h.p[a].x,h.p[a].y);g.lineTo(h.p[b].x,h.p[b].y);g.stroke()});
+    g.shadowBlur=0;g.fillStyle='#fff';
+    h.p.forEach((q,i)=>{g.beginPath();g.arc(q.x,q.y,3+Math.sin(T*6+i)*1.2,0,TAU);g.fill()});
+    TI.forEach((k,j)=>{g.fillStyle='hsl('+((j*60+T*80)%360)+',100%,70%)';
+      for(let o=0;o<3;o++){const a=T*3+o*2.1+j,r=14+o*5;g.beginPath();g.arc(h.p[k].x+Math.cos(a)*r,h.p[k].y+Math.sin(a)*r,2.2,0,TAU);g.fill()}})
+  });
+  if(hands.length>1){g.setLineDash([6,8]);g.strokeStyle='rgba(255,255,255,.6)';g.lineWidth=2;g.beginPath();g.moveTo(hands[0].c.x,hands[0].c.y);g.lineTo(hands[1].c.x,hands[1].c.y);g.stroke();g.setLineDash([])}
+  st(hands.length?'Neon skelet: qo\'l suyaklari va barmoq uchlarida aylanuvchi uchqunlar':NH)
+}
+const CH='01アイウエオカキクケコサシス';
+function matrix(){
+  const cw=18,n=Math.ceil(W/cw),M=state.m=state.m||[...Array(n)].map(()=>({y:Math.random()*H,v:2+Math.random()*4}));
+  g.font='16px monospace';g.textAlign='center';
+  M.forEach((c,i)=>{
+    const x=i*cw+cw/2;let near=false;
+    hands.forEach(h=>{if(Math.abs(h.c.x-x)<h.size*1.3+30&&Math.abs(h.c.y-c.y)<h.size*2.2+120)near=true});
+    c.y+=near?-c.v*1.5:c.v;if(c.y>H+20)c.y=-20;if(c.y<-20)c.y=H+20;
+    g.fillStyle=near?'#bff':'#fff';g.fillText(CH[Math.random()*CH.length|0],x,c.y);
+    g.fillStyle=near?'rgba(0,200,255,.9)':'rgba(0,255,90,.9)';g.fillText(CH[Math.random()*CH.length|0],x,c.y+(near?18:-18))
+  });
+  st(hands.length?'Matritsa: qo\'lingiz yonidagi ustunlar ko\'k bo\'lib yuqoriga oqadi':NH)
+}
+function plasma(){
+  g.globalCompositeOperation='lighter';
+  const Pl=state.pl=state.pl||{};
+  hands.forEach((h,hi)=>TI.forEach((k,j)=>{
+    const t=h.p[k],tr=Pl[hi+'_'+j]=Pl[hi+'_'+j]||[];tr.push({x:t.x,y:t.y});if(tr.length>16)tr.shift();
+    tr.forEach((q,i)=>{const f=(i+1)/tr.length,r=(30+h.size*.35)*f,hh=(j*55+T*40)%360,gr=g.createRadialGradient(q.x,q.y,0,q.x,q.y,r);
+      gr.addColorStop(0,'hsla('+hh+',100%,65%,'+.5*f+')');gr.addColorStop(1,'hsla('+hh+',100%,50%,0)');g.fillStyle=gr;g.beginPath();g.arc(q.x,q.y,r,0,TAU);g.fill()})
+  }));
+  st(hands.length?'Plazma: har barmoq o\'z rangida nur izi qoldiradi':NH)
+}
+const FN=[drawShapes,drawNeedles,drawParticles,drawBox,fire,zap,galaxy,paint,snow,magnet,ripple,skel,matrix,plasma];
+const FADE=[.4,.2,.28,1,.3,.5,.3,1,1,1,1,.3,.1,1];
 
 /* ---------- Asosiy sikl ---------- */
 function loop(t){
   T=t/1000;requestAnimationFrame(loop);
   g.globalCompositeOperation='destination-out';
-  g.fillStyle='rgba(0,0,0,'+(mode==1?.2:mode==2?.28:1)+')';g.fillRect(0,0,W,H);
+  g.fillStyle='rgba(0,0,0,'+FADE[mode]+')';g.fillRect(0,0,W,H);
   g.globalCompositeOperation='source-over';
-  const h=inp();
-  [drawShapes,drawNeedles,drawParticles,drawBox][mode](h);
+  g.shadowBlur=0;
+  FN[mode](inp());
+  g.globalCompositeOperation='source-over';g.shadowBlur=0;
+  if(performance.now()-tt>2200)$('#ttl').style.opacity=0;
   if(mode==0||mode==3){g.fillStyle='rgba(255,255,255,.55)';hands.forEach(q=>q.p.forEach(p=>{g.beginPath();g.arc(p.x,p.y,2.5,0,6.283);g.fill()}))}
 }
-requestAnimationFrame(loop);
+requestAnimationFrame(loop);cam();
 </script>
 </body>
 </html>
